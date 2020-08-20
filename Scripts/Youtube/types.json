@@ -1,0 +1,56 @@
+{
+    "video/mp4": {
+        "360p": [
+            "18;video/mp4; codecs=avc1.42001E, mp4a.40.2",
+            "134;video/mp4; codecs=avc1.4d401e",
+            "396;video/mp4; codecs=av01.0.01M.08"
+        ],
+        "720p": [
+            "22;video/mp4; codecs=avc1.64001F, mp4a.40.2",
+            "398;video/mp4; codecs=av01.0.05M.08"
+        ],
+        "480p": [
+            "135;video/mp4; codecs=avc1.4d401f",
+            "397;video/mp4; codecs=av01.0.04M.08"
+        ],
+        "240p": [
+            "133;video/mp4; codecs=avc1.4d4015",
+            "395;video/mp4; codecs=av01.0.00M.08"
+        ],
+        "144p": [
+            "160;video/mp4; codecs=avc1.4d400c",
+            "394;video/mp4; codecs=av01.0.00M.08"
+        ]
+    },
+    "video/webm": {
+        "720p": [
+            "247;video/webm; codecs=vp9"
+        ],
+        "480p": [
+            "244;video/webm; codecs=vp9"
+        ],
+        "360p": [
+            "243;video/webm; codecs=vp9"
+        ],
+        "240p": [
+            "242;video/webm; codecs=vp9"
+        ],
+        "144p": [
+            "278;video/webm; codecs=vp9"
+        ]
+    },
+    "audio/mp4": {
+        "AUDIO_QUALITY_MEDIUM": [
+            "140;audio/mp4; codecs=mp4a.40.2"
+        ]
+    },
+    "audio/webm": {
+        "AUDIO_QUALITY_LOW": [
+            "249;audio/webm; codecs=opus",
+            "250;audio/webm; codecs=opus"
+        ],
+        "AUDIO_QUALITY_MEDIUM": [
+            "251;audio/webm; codecs=opus"
+        ]
+    }
+}
