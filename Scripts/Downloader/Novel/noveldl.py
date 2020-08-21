@@ -4,7 +4,7 @@ import time
 import aiohttp
 
 # initialize argument parser
-from Scripts.Downloader.Novel.services import download_novel, add_novel_to_library, autoupdate_novels
+from services import download_novel, add_novel_to_library, autoupdate_novels, plog
 
 parser = argparse.ArgumentParser(description='Automated Novel Downloader')
 subparsers = parser.add_subparsers(dest="command", help='command')
@@ -25,7 +25,7 @@ args = parser.parse_args()
 t_start = time.time()
 loop = asyncio.get_event_loop()
 
-print(args)
+plog(['ARGUMENTS'], args)
 try:
     if args.command == 'download':
         if args.urls:
@@ -42,7 +42,7 @@ try:
         loop.run_until_complete(autoupdate_novels(interval))
 
 except Exception as ex:
-    print(f'[EXCEPTION] noveldl:{ex}')
+    plog(['exception'], '.'.join(['noveldl', str(ex)]))
 finally:
     loop.close()
 
@@ -53,4 +53,4 @@ if duration >= 60:
     duration = f'{duration:0.2f} min'
 else:
     duration = f'{duration:0.2f} s'
-print(f'[DURATION] {duration}')
+plog(['duration'], duration)

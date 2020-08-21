@@ -228,4 +228,4 @@ class BoxNovelCom(BaseParser):
         if len(paragraph_elements) == 0:
             paragraph_elements = soup.select(self.SELECTORS.content.split(':::')[1].strip())
         content_list = [element.text for element in paragraph_elements]
-        return '\n'.join(content_list)
+        return '\n\n'.join(content_list)

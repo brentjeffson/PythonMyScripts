@@ -5,110 +5,179 @@ from pathlib import Path
 import aiohttp
 from bs4 import BeautifulSoup
 
-from Scripts.Downloader.Novel.nparse import Novel, Chapter, WuxiaWorldCo, BaseParser, Website, BoxNovelCom
-from Scripts.Downloader.Novel.helpers import create_dirs
+from nparse import Novel, Chapter, WuxiaWorldCo, BaseParser, Website, BoxNovelCom
+from helpers import create_dirs, plog
 
 DOWNLOADS_DIR = 'novels'
 LIBRARY_DIR = 'library.inf'
 
 
-def plog(title, msg):
-    """print in a specific format"""
-    print(f'[{title}] {msg}')
+async def get_parsed_markup(session: aiohttp.ClientSession, url: str):
+    """Get markup of **url**
+
+    Args:
+        session (aiohttp.ClientSession): Session to get markup of url
+        url (str): URL of website to get markup
+
+    Returns:
+        tuple: (BeautifulSoup, int) for success, else (None, int)
+    """
+    async with session.get(url) as resp:
+        if resp.reason.lower() == 'ok':
+            return BeautifulSoup(await resp.text(), parser='html.parser', features='lxml'), resp.status
+        else:
+            return None, resp.status
 
 
-async def get_content(session, chapter, nparse, chapter_path):
-    try:
-        # get markup
-        async with session.get(chapter['url']) as resp:
-            if resp.reason:
-                # parse content
-                markup = await resp.text()
-                soup = BeautifulSoup(markup, parser='html.parser', features='lxml')
-                content = nparse.parse_content(soup)
-                # save content
-                await save(content, chapter_path)
-                print(f'[{resp.status}][{chapter["id"]}] {chapter["url"]}')
-                return 1
-    except Exception as ex:
-        print(f'[EXCEPTION][{chapter["id"]}] get_content.{ex}:')
-        return None
+async def get_chapter_content(session: aiohttp.ClientSession, chapter: Chapter, nparse: BaseParser):
+    """
+    Get content of **chapter**
+
+    :param session: Session used to get markup of chapter
+    :type session: aiohttp.ClientSession
+    :param chapter: Instance of **Chapter**
+    :type chapter: Chapter
+    :param nparse: Parser used to parsed content from chapter
+    :type nparse: BaseParser
+    :returns: **(content, status, chapter)** if the markup is parsed successfully, else **(None, status, chapter)**
+    :rtype: str
+
+    """
+    soup, status = await get_parsed_markup(session, chapter.url)
+    if soup is not None:
+        content = nparse.parse_content(soup)
+        return content, status, chapter
+    else:
+        return None, status, chapter
 
 
-async def get_chapters(session: aiohttp.ClientSession, novel: Novel, nparse: BaseParser):
-    """parse chapters from the novel homepage"""
-    # get markup
-    async with session.get(novel.url) as resp:
-        plog('', '')
-        if resp.reason:
-            markup = await resp.text()
-            soup = BeautifulSoup(markup, parser='html.parser', features='lxml')
-            chapters = nparse.parse_chapters(soup)
-            return chapters
+async def get_novel(session: aiohttp.ClientSession, url: str, nparse: BaseParser):
+    """parse meta, chapters from the novel homepage, and return Novel"""
+    # get parsed markup
+    soup, status = await get_parsed_markup(session, url)
+    if soup is not None:
+        meta = nparse.parse_meta(soup)
+        chapters = nparse.parse_chapters(soup)
+        return Novel(
+            meta.title,
+            url,
+            '/'.join(url.split('/')[:3]),
+            meta,
+            chapters
+        ), status
+    else:
+        return None, status
 
 
-async def save(data, filepath, mode='wt', encoding='utf-8'):
+async def save(data: str, filepath: Path, mode: str = 'wt', encoding: str = 'utf-8'):
+    """
+    Save **data** to **filepath**
+
+    :param data: Contains data to be saved
+    :type data: str
+    :param filepath: Path to the file where **data** will be saved
+    :type filepath: Path
+    :param mode: Mode to upon which the file opened
+    :type mode: str
+    :param encoding: Encoding to encode write data to file
+    :return: None
+    """
     create_dirs(filepath)
-    with open(str(filepath), mode, encoding=encoding) as f:
+    with filepath.open(mode=mode, encoding=encoding) as f:
         f.write(data)
+    # with open(str(filepath), mode, encoding=encoding) as f:
+    #     f.write(data)
 
 
-async def save_novel(novel: Novel, filepath: Path) -> None:
-    tmp_novel = novel.copy()
-    tmp_novel.chapters.clear()
-    converted = 0
+async def save_novel(novel: Novel, filepath: Path):
+    """
+    Save **novel** to **filepath**
+
+    :param novel: Instance of **Novel** to be saved in **filepath
+    :type novel: Novel
+    :param filepath: Path to a file containing information on the **novel**
+    :returns: Number of chapter converted from **Chapter** object to **dict**
+    :rtype: int
+    """
     # convert Chapter object to a dict
-    for chapter in tmp_novel.chapters:
-        # check if chapter is a Chapter object
-        if type(chapter) == Chapter:
-            novel.chapters.append(chapter.to_dict())
-            converted += 1
-    print(f'[CHAPTERS CONVERTED] {converted}')
-    data = json.dumps(tmp_novel.__dict__, indent=4)
+    converted_chapters = [chapter.to_dict() if type(chapter) == Chapter else chapter for chapter in novel.chapters]
+
+    data = json.dumps(Novel(
+        novel.title,
+        novel.url,
+        novel.base_url,
+        novel.meta.to_dict(),
+        converted_chapters
+    ).__dict__, indent=4)
     await save(data, filepath)
+    return len(converted_chapters)
 
 
 async def load_novel(filepath: Path) -> Novel:
+    """
+    Load information containing novel details
+
+    :param filepath: Path to novel information
+    :type filepath: Path
+    :returns: An instance of Novel
+    :rtype: Novel
+    """
     with open(str(filepath), 'rt') as f:
-        jnovel = json.loads(f.read())
+        novel_dictionary = json.loads(f.read())
         return Novel(
-            title=jnovel['title'],
-            url=jnovel['url'],
-            base_url=jnovel['base_url'],
-            meta=jnovel['meta'],
-            chapters=jnovel['chapters']
+            title=novel_dictionary['title'],
+            url=novel_dictionary['url'],
+            base_url=novel_dictionary['base_url'],
+            meta=novel_dictionary['meta'],
+            chapters=novel_dictionary['chapters']
         )
 
 
 async def add_novel_to_library(url: str, filepath: Path = Path(LIBRARY_DIR).absolute()):
+    """
+    Add **url** to novel library indicated by **filepath**
+
+    :param url: URL to be added to novel library
+    :type url: str
+    :param filepath: Path to novel library
+    :type filepath: Path
+    :returns: If url is saved returns **data**, otherwise **None**
+    :rtype: str
+    """
     # clean url for leading and trailing spaces
-    url = url.strip()
+    new_url = url.strip()
     # read file if exists
     suffix = ''
     data = await load_novel_library(filepath)
     if data is not None:
         # check if url is already in file
         for u in data.split('\n'):
-            if u == url:
-                print(f'[URL IN FILE] {url}')
-                return -1
-
+            if u == new_url:
+                plog(['in library'], new_url)
         suffix = '\n'
     else:
-        data = ''
+        return None
 
     # append url to data
     data = f'{suffix}'.join([data, url])
     await save(data, filepath)
-    print(f'[SAVED] {len(data)} bytes')
+    plog(['saved'], f'{len(data)} bytes')
+    return data
 
 
 async def load_novel_library(filepath: Path = Path(LIBRARY_DIR).absolute()):
+    """
+    Load novel library containing a list of novels
+
+    :param Path filepath: Path location to the novels library
+    :returns: if filepath exists return a **string** containing a list of novels, otherwise **None**
+    :rtype: str
+    """
     if filepath.exists():
         with open(filepath, 'rt') as f:
             return f.read()
     else:
-        print('[CANNOT LOAD LIBRARY]')
+        plog(['MISSING FILE'], filepath)
         return None
 
 
@@ -125,81 +194,79 @@ async def download_novel(url: str):
         return
     # get markup
     async with aiohttp.ClientSession() as session:
-        async with session.get(url) as resp:
-            print(f'[STATUS CODE] {resp.status}')
-            if resp.reason.lower() == 'ok':
+        novel, status = await get_novel(session, url, nparse)
+        plog([status], url)
+        if novel is not None:
 
-                # parse markup
-                markup = await resp.text()
-                soup = BeautifulSoup(markup, parser='html.parser', features='lxml')
+            plog(['chapter count'], len(novel.chapters))
 
-                if nparse is not None:
-                    # get novel meta
-                    meta = nparse.parse_meta(soup)
-                    # get new chapters
-                    new_chapters = nparse.parse_chapters(soup)
-                    # convert Chapter object to dict
-                    new_chapters = [chapter.to_dict() for chapter in new_chapters]
-                    print(f'[CHAPTER COUNT] {len(new_chapters)}')
+            # get filepath to save novel
+            download_path = Path(DOWNLOADS_DIR, novel.meta.title.replace(' ', '_').upper())
+            novel_path = Path(download_path, ''.join([novel.meta.title.replace(' ', '_').lower(), '.json'])).absolute()
 
-                    # get filepath to save novel
-                    download_path = Path(DOWNLOADS_DIR, meta.title.replace(' ', '_').upper())
-                    novel_path = Path(download_path, ''.join([meta.title.replace(' ', '_').lower(), '.json'])).absolute()
+            # ensure download directory exists
+            if not download_path.exists():
+                download_path.mkdir()
 
-                    # ensure download directory exists
-                    if not download_path.exists():
-                        download_path.mkdir()
+            # load json file if exists and has data
+            if novel_path.exists() and novel_path.lstat().st_size > 0:
+                # load previous novel information
+                # novel = await load_novel(novel_path)
 
-                    # load json file if exists and has data
-                    if novel_path.exists() and novel_path.lstat().st_size > 0:
-                        # load previous novel download
-                        novel = await load_novel(novel_path)
-                    else:
-                        novel = Novel(
-                            title=meta.title,
-                            url=url,
-                            base_url='/'.join(url.split('/')[:3]),
-                            meta=meta.to_dict(),
-                            chapters=new_chapters
-                        )
+                # save novel information
+                converted_chapters = await save_novel(novel, novel_path)
+                plog(['chapter -> dict'], converted_chapters)
 
-                    # add new chapters
-                    novel.chapters = new_chapters.copy()
-                    await save_novel(novel, novel_path)
+                # check number of undownloaded content
+                amount_to_download = 0
+                for chapter in novel.chapters:
+                    cpath = Path(
+                        download_path,
+                        'contents',
+                        ''.join([chapter.url.split('/')[::-1][0].replace('.html', ''), '.chapter'])
+                    )
+                    if not cpath.exists():
+                        amount_to_download += 1
+                plog(['# downloads'], amount_to_download)
 
-                    # check number of undownloaded content
-                    undownloaded_count = 0
-                    for ref_chapter in new_chapters:
-                        cpath = Path(
-                            download_path,
-                            'contents',
-                            ''.join([ref_chapter['url'].split('/')[::-1][0].replace('.html', ''), '.chapter'])
-                        )
-                        if not cpath.exists():
-                            undownloaded_count += 1
-                    print(f'[DOWNLOADLOADABLE CONTENT] {undownloaded_count}')
+                # create tasks to download content
+                tasks = []
+                for chapter in novel.chapters:
+                    chapter_path = Path(
+                        download_path,
+                        'contents',
+                        ''.join([chapter.url.split('/')[::-1][0].replace('.html', ''), '.chapter'])
+                    )
+                    if not chapter_path.exists():
+                        chapter.url = ''.join([novel.base_url, chapter.url]) if novel.base_url not in chapter.url else chapter.url
+                        task = asyncio.create_task(get_chapter_content(session, chapter, nparse))
+                        tasks.append(task)
 
-                    # download content
-                    tasks = []
-                    downloaded = 0
-                    for chapter in new_chapters:
+                # process completed content download
+                bytes_downloaded = 0
+                downloaded = 0
+                for future in asyncio.as_completed(tasks):
+                    try:
+                        content, status, chapter = await future
                         chapter_path = Path(
                             download_path,
                             'contents',
-                            ''.join([chapter['url'].split('/')[::-1][0].replace('.html', ''), '.chapter'])
+                            ''.join([chapter.url.split('/')[::-1][0].replace('.html', ''), '.chapter'])
                         )
-                        if not chapter_path.exists():
-                            if novel.base_url not in chapter['url']:
-                                chapter['url'] = ''.join([novel.base_url, chapter['url']])
-                            task = asyncio.create_task(get_content(session, chapter, nparse, chapter_path))
-                            tasks.append(task)
-
-                    results = await asyncio.gather(*tasks, return_exceptions=True)
-
-                    for result in results:
-                        if result is not None:
+                        if content is not None:
                             downloaded += 1
-                    print(f'[DOWNLOADED] {downloaded}')
+                            await save(content, chapter_path)
+                            bytes_downloaded += len(content)
+                            plog([status, chapter.id], f'{len(content)} b - {chapter.url}')
+
+                    except aiohttp.ServerConnectionError as e:
+                        plog(['retry'])
+                        chapter.url = ''.join(
+                            [novel.base_url, chapter.url]) if novel.base_url not in chapter.url else chapter.url
+                        task = asyncio.create_task(get_chapter_content(session, chapter, nparse))
+                        tasks.append(task)
+
+                plog(['downloaded'], downloaded)
 
 
 async def autoupdate_novels(interval: int):
@@ -218,10 +285,12 @@ async def autoupdate_novels(interval: int):
                 else:
                     print('[NOVEL LIBRARY MISSING]')
                     break
-
+                # print('\n')
                 for i in range(interval):
                     print(f'[WAITING] {interval-i} s', end='\r')
                     await asyncio.sleep(1)
-            except Exception as ex:
-                print(f'[EXCEPTION] autoupdate_novels.{ex}')
-                print(f'[RETRYING]')
+                    print(' '*len(f'[WAITING] {interval - i} s'), end='\r')
+            except KeyboardInterrupt as ex:
+                plog(['exiting'])
+            except aiohttp.ServerConnectionError as e:
+                plog(['retrying'])

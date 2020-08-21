@@ -37,3 +37,9 @@ def create_dirs(filepath):
         # else:
         #     print(f'[PATH EXISTS] {part}')
     return True
+
+
+def plog(title, msg=''):
+    """print in a specific format"""
+    title = ''.join([''.join(['[', str(i), ']']) for i in title]).upper()
+    print(f'{title} {str(msg)}')
