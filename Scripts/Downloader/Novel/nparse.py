@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 
 class Website(Enum):
     WUXIAWORLDCO = 'wuxiaworld.co'
+    BOXNOVELCOM = 'boxnovel.com'
 
 
 class Status(Enum):
@@ -90,6 +91,15 @@ class Novel(Item):
             chapters=novel['chapters']
         )
 
+    def copy(self):
+        return Novel(
+            self.title,
+            self.url,
+            self.base_url,
+            self.meta,
+            self.chapters
+        )
+
 class BaseParser:
 
     def __init__(self, title_selector: str,
@@ -109,8 +119,10 @@ class BaseParser:
     @staticmethod
     def identify(url):
         website = None
-        if Website.WUXIAWORLDCO.name in url:
+        if Website.WUXIAWORLDCO.value in url:
             website = Website.WUXIAWORLDCO
+        elif Website.BOXNOVELCOM.value in url:
+            website = Website.BOXNOVELCOM
         return website
 
     def parse_meta(self, soup: BeautifulSoup) -> Meta:
@@ -157,10 +169,12 @@ class WuxiaWorldCo(BaseParser):
     )
 
     def __init__(self):
-        super(WuxiaWorldCo, self).__init__(self.SELECTORS.title,
-                                           self.SELECTORS.chapters, self.SELECTORS.content,
-                                           self.SELECTORS.authors, self.SELECTORS.genres,
-                                           self.SELECTORS.description, self.SELECTORS.rating, self.SELECTORS.status)
+        super(WuxiaWorldCo, self).__init__(
+            self.SELECTORS.title,
+            self.SELECTORS.chapters, self.SELECTORS.content,
+            self.SELECTORS.authors, self.SELECTORS.genres,
+            self.SELECTORS.description, self.SELECTORS.rating, self.SELECTORS.status
+        )
 
     def parse_chapters(self, soup: BeautifulSoup) -> List:
         chapters = super().parse_chapters(soup)
@@ -181,20 +195,33 @@ class WuxiaWorldCo(BaseParser):
 class BoxNovelCom(BaseParser):
     SELECTORS = Selectors(
         'ol.breadcrumb > li:last-child',
-        'li.wp-manga-chapter', 'div.cha-words p ::: div.text-left > p',
+        'li.wp-manga-chapter > a', 'div.cha-words p ::: div.text-left > p',
         'div.author-content > a', 'div.genres-content',
         'div#editdescription', 'div.post-total-rating > span.total_votes',
         'div.post-status > div:nth-child(2) > div:last-child'
     )
 
-    def __init__(self, title_selector: str,
-                 chapters_selector: str, content_selector: str, authors_selector: str,
-                 genres_selector: str, description_selector: str, rating_selector: str, status_selector: str):
-        super().__init__(title_selector, chapters_selector, content_selector, authors_selector, genres_selector,
-                         description_selector, rating_selector, status_selector)
+    def __init__(self):
+        super(BoxNovelCom, self).__init__(
+            self.SELECTORS.title,
+            self.SELECTORS.chapters, self.SELECTORS.content,
+            self.SELECTORS.authors, self.SELECTORS.genres,
+            self.SELECTORS.description, self.SELECTORS.rating, self.SELECTORS.status
+        )
+
+    def parse_meta(self, soup: BeautifulSoup) -> Meta:
+        meta =  super().parse_meta(soup)
+        meta.genres = [genre.replace('\n', '') for genre in meta.genres]
+        meta.authors = [author.replace('\n', '') for author in meta.authors]
+        meta.description = meta.description[1:]
+        meta.title = meta.title.replace('\n', '').replace('\r', '').replace('\t', '').strip()
+        return meta
 
     def parse_chapters(self, soup: BeautifulSoup) -> List[Chapter]:
-        return super().parse_chapters(soup)
+        chapters = super().parse_chapters(soup)
+        for chapter in chapters:
+            chapter.title = chapter.title.replace('\t', '').replace('\n', '').strip()
+        return chapters
 
     def parse_content(self, soup: BeautifulSoup) -> str:
         paragraph_elements = soup.select(self.SELECTORS.content.split(':::')[0].strip())

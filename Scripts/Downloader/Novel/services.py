@@ -5,7 +5,7 @@ from pathlib import Path
 import aiohttp
 from bs4 import BeautifulSoup
 
-from Scripts.Downloader.Novel.nparse import Novel, Chapter, WuxiaWorldCo
+from Scripts.Downloader.Novel.nparse import Novel, Chapter, WuxiaWorldCo, BaseParser, Website, BoxNovelCom
 from Scripts.Downloader.Novel.helpers import create_dirs
 
 DOWNLOADS_DIR = 'novels'
@@ -37,17 +37,17 @@ async def save(data, filepath, mode='wt', encoding='utf-8'):
 
 
 async def save_novel(novel: Novel, filepath: Path) -> None:
-    tmp_chapters = novel.chapters.copy()
-    novel.chapters.clear()
+    tmp_novel = novel.copy()
+    tmp_novel.chapters.clear()
     converted = 0
     # convert Chapter object to a dict
-    for chapter in tmp_chapters:
+    for chapter in tmp_novel.chapters:
         # check if chapter is a Chapter object
         if type(chapter) == Chapter:
             novel.chapters.append(chapter.to_dict())
             converted += 1
     print(f'[CHAPTERS CONVERTED] {converted}')
-    data = json.dumps(novel.__dict__, indent=4)
+    data = json.dumps(tmp_novel.__dict__, indent=4)
     await save(data, filepath)
     # with open(str(filepath), 'wt') as f:
     #     f.write(json.dumps(novel.__dict__, indent=4))
@@ -98,6 +98,15 @@ async def load_novel_library(filepath: Path = Path(LIBRARY_DIR).absolute()):
 
 
 async def download_novel(url: str):
+    # check website source
+    nparse = None
+    if BaseParser.identify(url) == Website.WUXIAWORLDCO:
+        nparse = WuxiaWorldCo()
+    elif BaseParser.identify(url) == Website.BOXNOVELCOM:
+        nparse = BoxNovelCom()
+    else:
+        print(f'[UNSUPPORTED WEBSITE] {url}')
+        return
     # get markup
     async with aiohttp.ClientSession() as session:
         async with session.get(url) as resp:
@@ -108,19 +117,13 @@ async def download_novel(url: str):
                 markup = await resp.text()
                 soup = BeautifulSoup(markup, parser='html.parser', features='lxml')
 
-                # check website source
-                nparse = None
-                if 'wuxiaworld.co' in url:
-                    nparse = WuxiaWorldCo()
-                else:
-                    print(f'[UNSUPPORTED WEBSITE] {url}')
-                    return
-
                 if nparse is not None:
                     # get novel meta
                     meta = nparse.parse_meta(soup)
                     # get new chapters
                     new_chapters = nparse.parse_chapters(soup)
+                    # convert Chapter object to dict
+                    new_chapters = [chapter.to_dict() for chapter in new_chapters]
                     print(f'[CHAPTER COUNT] {len(new_chapters)}')
 
                     # get filepath to save novel
@@ -136,39 +139,42 @@ async def download_novel(url: str):
                         # load previous novel download
                         novel = await load_novel(novel_path)
                     else:
-                        novel = Novel(title=meta.title,
-                                      url=url,
-                                      base_url='/'.join(url.split('/')[:3]),
-                                      meta=meta.to_dict(),
-                                      chapters=new_chapters)
+                        novel = Novel(
+                            title=meta.title,
+                            url=url,
+                            base_url='/'.join(url.split('/')[:3]),
+                            meta=meta.to_dict(),
+                            chapters=new_chapters
+                        )
 
                     # add new chapters
-                    novel.chapters = new_chapters
+                    novel.chapters = new_chapters.copy()
+                    await save_novel(novel, novel_path)
 
                     # check number of undownloaded content
                     undownloaded_count = 0
-                    for ref_chapter in novel.chapters:
+                    for ref_chapter in new_chapters:
                         cpath = Path(
                             download_path,
                             'contents',
-                            ''.join([ref_chapter.url.split('/')[::-1][0].replace('.html', ''), '.chapter'])
+                            ''.join([ref_chapter['url'].split('/')[::-1][0].replace('.html', ''), '.chapter'])
                         )
                         if not cpath.exists():
                             undownloaded_count += 1
                     print(f'[DOWNLOADLOADABLE CONTENT] {undownloaded_count}')
 
-                    await save_novel(novel, novel_path)
                     # download content
                     tasks = []
                     downloaded = 0
-                    for chapter in novel.chapters:
+                    for chapter in new_chapters:
                         chapter_path = Path(
                             download_path,
                             'contents',
                             ''.join([chapter['url'].split('/')[::-1][0].replace('.html', ''), '.chapter'])
                         )
                         if not chapter_path.exists():
-                            chapter['url'] = ''.join([novel.base_url, chapter['url']])
+                            if novel.base_url not in chapter['url']:
+                                chapter['url'] = ''.join([novel.base_url, chapter['url']])
                             task = asyncio.create_task(get_content(session, chapter, nparse, chapter_path))
                             tasks.append(task)
 
