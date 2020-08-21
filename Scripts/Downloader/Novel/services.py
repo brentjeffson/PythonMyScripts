@@ -181,7 +181,6 @@ async def load_novel_library(filepath: Path = Path(LIBRARY_DIR).absolute()):
         return None
 
 
-# todo seperate work to different functions
 async def download_novel(url: str):
     # check website source
     nparse = None
