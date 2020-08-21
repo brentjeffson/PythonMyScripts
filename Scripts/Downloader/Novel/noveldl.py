@@ -9,8 +9,8 @@ from services import download_novel, add_novel_to_library, autoupdate_novels, pl
 parser = argparse.ArgumentParser(description='Automated Novel Downloader')
 subparsers = parser.add_subparsers(dest="command", help='command')
 
-# start command
-start_parser = subparsers.add_parser('start', help='Start autoupdate of novels, runs indefinitely until closed.')
+# update command
+start_parser = subparsers.add_parser('update', help='Start updating novels, runs indefinitely until closed.')
 start_parser.add_argument('-i', '--interval', action='store', default=60, dest='interval', type=int, help='Time interval per update')
 
 # add command
@@ -37,7 +37,7 @@ try:
             for url in args.urls:
                 loop.run_until_complete(add_novel_to_library(url))
 
-    elif args.command == 'start':
+    elif args.command == 'update':
         interval = args.interval
         loop.run_until_complete(autoupdate_novels(interval))
 
