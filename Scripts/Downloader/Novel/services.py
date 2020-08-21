@@ -12,6 +12,11 @@ DOWNLOADS_DIR = 'novels'
 LIBRARY_DIR = 'library.inf'
 
 
+def plog(title, msg):
+    """print in a specific format"""
+    print(f'[{title}] {msg}')
+
+
 async def get_content(session, chapter, nparse, chapter_path):
     try:
         # get markup
@@ -28,6 +33,18 @@ async def get_content(session, chapter, nparse, chapter_path):
     except Exception as ex:
         print(f'[EXCEPTION][{chapter["id"]}] get_content.{ex}:')
         return None
+
+
+async def get_chapters(session: aiohttp.ClientSession, novel: Novel, nparse: BaseParser):
+    """parse chapters from the novel homepage"""
+    # get markup
+    async with session.get(novel.url) as resp:
+        plog('', '')
+        if resp.reason:
+            markup = await resp.text()
+            soup = BeautifulSoup(markup, parser='html.parser', features='lxml')
+            chapters = nparse.parse_chapters(soup)
+            return chapters
 
 
 async def save(data, filepath, mode='wt', encoding='utf-8'):
@@ -49,8 +66,6 @@ async def save_novel(novel: Novel, filepath: Path) -> None:
     print(f'[CHAPTERS CONVERTED] {converted}')
     data = json.dumps(tmp_novel.__dict__, indent=4)
     await save(data, filepath)
-    # with open(str(filepath), 'wt') as f:
-    #     f.write(json.dumps(novel.__dict__, indent=4))
 
 
 async def load_novel(filepath: Path) -> Novel:
@@ -97,6 +112,7 @@ async def load_novel_library(filepath: Path = Path(LIBRARY_DIR).absolute()):
         return None
 
 
+# todo seperate work to different functions
 async def download_novel(url: str):
     # check website source
     nparse = None
